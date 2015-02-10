@@ -41,6 +41,7 @@ import de.berlios.vch.parser.IWebPage;
 import de.berlios.vch.parser.IWebParser;
 import de.berlios.vch.parser.OverviewPage;
 import de.berlios.vch.parser.VideoPage;
+import de.berlios.vch.parser.XmlParserUtils;
 import de.berlios.vch.parser.zdf.VideoType.Quality;
 
 @Component
@@ -130,7 +131,12 @@ public class ZDFMediathekParser implements IWebParser {
         String uri = page.getUri().toString();
         String statusCode = XmlParserUtils.getTextContent(content, "statuscode");
         if (!"ok".equals(statusCode)) {
-            return;
+            String debugInfo = "";
+            try {
+                debugInfo = XmlParserUtils.getTextContent(content, "debuginfo");
+            } catch (Exception e) { /* fail silently */
+            }
+            throw new RuntimeException("Error: status code " + statusCode + " - " + debugInfo);
         }
 
         if (uri.contains("sendungenAbisZ")) {
