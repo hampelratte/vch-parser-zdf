@@ -2,7 +2,7 @@
     <modelVersion>4.0.0</modelVersion>
     <artifactId>parser.zdf</artifactId>
     <packaging>bundle</packaging>
-    <version>1.2.1</version>
+    <version>1.2.2-SNAPSHOT</version>
     <name>VCH ZDF Parser</name>
     <description>Parser for the ZDFmediathek http://www.zdf.de/ZDFmediathek</description>
 
