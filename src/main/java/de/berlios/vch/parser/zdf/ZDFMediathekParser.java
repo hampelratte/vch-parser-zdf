@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.GregorianCalendar;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -24,10 +25,13 @@ import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.xpath.XPathExpressionException;
 
+import org.apache.felix.ipojo.annotations.Bind;
 import org.apache.felix.ipojo.annotations.Component;
 import org.apache.felix.ipojo.annotations.Provides;
 import org.apache.felix.ipojo.annotations.Requires;
+import org.apache.felix.ipojo.annotations.Unbind;
 import org.osgi.service.log.LogService;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
@@ -36,7 +40,9 @@ import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
 import de.berlios.vch.http.client.HttpUtils;
+import de.berlios.vch.net.INetworkProtocol;
 import de.berlios.vch.parser.IOverviewPage;
+import de.berlios.vch.parser.IVideoPage;
 import de.berlios.vch.parser.IWebPage;
 import de.berlios.vch.parser.IWebParser;
 import de.berlios.vch.parser.OverviewPage;
@@ -64,6 +70,9 @@ public class ZDFMediathekParser implements IWebParser {
 
     @Requires
     private LogService logger;
+
+    // injected by iPojo, see #addProtocol(), #removeProtocol()
+    List<INetworkProtocol> supportedProtocols = new ArrayList<INetworkProtocol>();
 
     public final OverviewPage abz;
 
@@ -195,7 +204,7 @@ public class ZDFMediathekParser implements IWebParser {
 
     /**
      * Determines the number in a list of numbers, which is the closest to the given number.
-     * 
+     *
      * @param list
      * @param n
      * @return
@@ -249,12 +258,7 @@ public class ZDFMediathekParser implements IWebParser {
         video.setPublishDate(pubDate);
 
         // parse the video
-        String videoUri = parseVideoUri(content);
-        if (videoUri != null) {
-            video.setVideoUri(new URI(videoUri));
-        } else {
-            logger.log(LogService.LOG_WARNING, "No video found for broadcast " + video.getUri());
-        }
+        parseVideoUri(content, video);
     }
 
     private Map<Integer, String> parsePreviewImages(Node parent) {
@@ -287,20 +291,58 @@ public class ZDFMediathekParser implements IWebParser {
         return null;
     }
 
-    private String parseVideoUri(Document xml) {
+    private void parseVideoUri(Document xml, IVideoPage video) throws URISyntaxException {
         List<VideoType> videoTypes = new ArrayList<VideoType>();
         logger.log(LogService.LOG_DEBUG, "Supported formats: " + supportedFormats.toString());
+        logger.log(LogService.LOG_DEBUG, "Supported protocols: " + supportedProtocols.toString());
         NodeList formitaeten = xml.getElementsByTagName("formitaet");
         for (int i = 0; i < formitaeten.getLength(); i++) {
             Node formitaet = formitaeten.item(i);
+
+            // skip files from metafilegenerator.de since it returns 403 (couldn't figure out the right HTTP headers to get a response)
             String videoUri = XmlParserUtils.getTextContent(formitaet, "url");
+            if (videoUri.contains("metafilegenerator")) {
+                continue;
+            }
+
+            // skip unsupported formats / protocols
+            String basetype = formitaet.getAttributes().getNamedItem("basetype").getNodeValue();
+            if (basetype.contains("3gp") || basetype.contains("rtsp")) {
+                continue;
+            }
+
             String type = videoUri.substring(videoUri.lastIndexOf('.') + 1);
             String quality = XmlParserUtils.getTextContent(formitaet, "quality");
             String ratio = XmlParserUtils.getTextContent(formitaet, "ratio");
+
+            // skip weired formats
             if (!"16:9".equals(ratio)) {
                 continue;
             }
-            // String scheme = videoUri.substring(0, videoUri.indexOf(':'));
+
+            // parse meta data file for type and real video URL
+            if (basetype.contains("rtmp_zdfmeta_http")) {
+                try {
+                    String metaXml = HttpUtils.get(videoUri, HTTP_HEADERS, CHARSET);
+                    videoUri = XmlParserUtils.getStringWithXpath(metaXml, "/metafile/default-stream-url");
+                    type = videoUri.substring(videoUri.lastIndexOf('.') + 1);
+                } catch (Exception e) {
+                    logger.log(LogService.LOG_WARNING, "Couldn't parse meta file at " + videoUri);
+                }
+            }
+
+            // parse smil file (cotains 3 or 4 streams with different qualities)
+            if (basetype.contains("rtmp_smil_http")) {
+                // parse the smil file
+                try {
+                    parseSmilFile(videoUri, videoTypes);
+                    continue;
+                } catch (Exception e) {
+                    logger.log(LogService.LOG_WARNING, "Couldn't parse smil file at " + videoUri);
+                }
+            }
+
+            // parse the video height
             String heightString = XmlParserUtils.getTextContent(formitaet, "height");
             if (heightString != null) {
                 int height = Integer.parseInt(heightString);
@@ -310,13 +352,70 @@ public class ZDFMediathekParser implements IWebParser {
                 }
             }
         }
+
+        // sort out videos with unsupported schemes
+        // since the smil only contains rtmp URIs, make sure, that we support RTMP
+        for (Iterator<VideoType> iterator = videoTypes.iterator(); iterator.hasNext();) {
+            VideoType videoType = iterator.next();
+            String uri = videoType.getUri();
+            boolean schemeSupported = checkSchemeSupport(uri);
+            if (!schemeSupported) {
+                iterator.remove();
+            }
+        }
+
+        // figure out the video with the best quality
         Collections.sort(videoTypes, new VideoTypeComparator());
         if (videoTypes.size() > 0) {
             VideoType best = videoTypes.get(videoTypes.size() - 1);
             logger.log(LogService.LOG_DEBUG, "Best video is " + best.getQuality() + " " + best.getFormat() + " " + best.getHeight() + " " + best.getUri());
-            return best.getUri();
+            video.setVideoUri(new URI(best.getUri()));
+            if (video.getVideoUri().getScheme().equals("rtmp")) {
+                int index = best.getUri().indexOf("/mp4:");
+                String streamName = best.getUri().substring(index + 1);
+                video.getUserData().put("streamName", streamName);
+            }
         } else {
-            return null;
+            String msg = "No video found for broadcast " + video.getUri();
+            throw new RuntimeException(msg);
+        }
+    }
+
+    private boolean checkSchemeSupport(String videoUri) {
+        try {
+            String scheme = new URI(videoUri).getScheme();
+            boolean schemeSupported = false;
+            for (INetworkProtocol protocol : supportedProtocols) {
+                if (protocol.getSchemes().contains(scheme)) {
+                    schemeSupported = true;
+                    break;
+                }
+            }
+
+            return schemeSupported;
+        } catch (URISyntaxException e) {
+        }
+        return false;
+    }
+
+    private void parseSmilFile(String videoUri, List<VideoType> videoTypes) throws IOException, ParserConfigurationException, SAXException,
+            XPathExpressionException {
+        String smil = HttpUtils.get(videoUri, HTTP_HEADERS, CHARSET);
+        Document doc = XmlParserUtils.parse(smil);
+        Node hostParam = XmlParserUtils.getNodeWithXpath(doc, "/smil/head/paramGroup/param[@name='host']");
+        String host = hostParam.getAttributes().getNamedItem("value").getNodeValue();
+        Node appParam = XmlParserUtils.getNodeWithXpath(doc, "/smil/head/paramGroup/param[@name='app']");
+        String app = appParam.getAttributes().getNamedItem("value").getNodeValue();
+
+        List<Node> videos = new ArrayList<Node>();
+        XmlParserUtils.getElementsByTagName(doc, "video", videos);
+        for (Node node : videos) {
+            String streamName = node.getAttributes().getNamedItem("src").getNodeValue();
+            Node qualityParam = XmlParserUtils.getNodeWithXpath(node, "param[@name='quality']");
+            String quality = qualityParam.getAttributes().getNamedItem("value").getNodeValue();
+            Quality q = Quality.valueOf(quality);
+            videoUri = "rtmp://" + host + "/" + app + "/" + streamName;
+            videoTypes.add(new VideoType(videoUri, "mp4", 0, q));
         }
     }
 
@@ -342,5 +441,15 @@ public class ZDFMediathekParser implements IWebParser {
     @Override
     public String getId() {
         return ID;
+    }
+
+    @Bind(id = "supportedProtocols", aggregate = true)
+    public synchronized void addProtocol(INetworkProtocol protocol) {
+        supportedProtocols.add(protocol);
+    }
+
+    @Unbind(id = "supportedProtocols", aggregate = true)
+    public synchronized void removeProtocol(INetworkProtocol protocol) {
+        supportedProtocols.remove(protocol);
     }
 }

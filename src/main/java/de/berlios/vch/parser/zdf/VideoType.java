@@ -4,10 +4,11 @@ public class VideoType {
 
     //@formatter:off
     public static enum Quality {
-        low, 
-        medium, 
-        high, 
-        veryhigh
+        low,
+        medium,
+        high,
+        veryhigh,
+        hd
     }
     //@formatter:on
 
@@ -50,5 +51,10 @@ public class VideoType {
 
     public void setQuality(Quality quality) {
         this.quality = quality;
+    }
+
+    @Override
+    public String toString() {
+        return quality + " " + format + " " + height + " " + uri;
     }
 }
