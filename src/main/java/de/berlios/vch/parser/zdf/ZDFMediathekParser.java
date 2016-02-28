@@ -63,6 +63,7 @@ public class ZDFMediathekParser implements IWebParser {
     private final Map<String, String> aBisZ = new TreeMap<String, String>();
 
     public static Map<String, String> HTTP_HEADERS = new HashMap<String, String>();
+
     static {
         HTTP_HEADERS.put("User-Agent", "Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.45 Safari/537.17");
         HTTP_HEADERS.put("Accept-Language", "de-de,de;q=0.8,en-us;q=0.5,en;q=0.3");
@@ -130,6 +131,10 @@ public class ZDFMediathekParser implements IWebParser {
     }
 
     public void parseOverviewPage(OverviewPage page) throws URISyntaxException, IOException, SAXException, ParserConfigurationException {
+        if (page != abz) {
+            page.getPages().clear();
+        }
+
         // download xml as string
         String xml = HttpUtils.get(page.getUri().toString(), HTTP_HEADERS, CHARSET);
 
@@ -222,7 +227,7 @@ public class ZDFMediathekParser implements IWebParser {
         return closest;
     }
 
-    private static List<String> supportedFormats = Arrays.asList(new String[] { "mp4"/* , "3gp" */});
+    private static List<String> supportedFormats = Arrays.asList(new String[] { "mp4"/* , "3gp" */ });
 
     private static Pattern minutesPattern = Pattern.compile("(\\d+)\\s*min"); // "28 min"
     private static Pattern timestampPattern = Pattern.compile("(\\d{2}):(\\d{2}):(\\d{2})\\.\\d{3}"); // 00:01:43.000
@@ -398,8 +403,8 @@ public class ZDFMediathekParser implements IWebParser {
         return false;
     }
 
-    private void parseSmilFile(String videoUri, List<VideoType> videoTypes) throws IOException, ParserConfigurationException, SAXException,
-            XPathExpressionException {
+    private void parseSmilFile(String videoUri, List<VideoType> videoTypes)
+            throws IOException, ParserConfigurationException, SAXException, XPathExpressionException {
         String smil = HttpUtils.get(videoUri, HTTP_HEADERS, CHARSET);
         Document doc = XmlParserUtils.parse(smil);
         Node hostParam = XmlParserUtils.getNodeWithXpath(doc, "/smil/head/paramGroup/param[@name='host']");
