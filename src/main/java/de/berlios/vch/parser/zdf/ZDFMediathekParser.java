@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.ResourceBundle;
 import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -32,6 +33,7 @@ import org.apache.felix.ipojo.annotations.Component;
 import org.apache.felix.ipojo.annotations.Provides;
 import org.apache.felix.ipojo.annotations.Requires;
 import org.apache.felix.ipojo.annotations.Unbind;
+import org.osgi.framework.BundleContext;
 import org.osgi.service.log.LogService;
 import org.w3c.dom.Document;
 import org.w3c.dom.Node;
@@ -40,6 +42,8 @@ import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
 
 import de.berlios.vch.http.client.HttpUtils;
+import de.berlios.vch.i18n.ResourceBundleLoader;
+import de.berlios.vch.i18n.ResourceBundleProvider;
 import de.berlios.vch.net.INetworkProtocol;
 import de.berlios.vch.parser.IOverviewPage;
 import de.berlios.vch.parser.IVideoPage;
@@ -52,17 +56,17 @@ import de.berlios.vch.parser.zdf.VideoType.Quality;
 
 @Component
 @Provides
-public class ZDFMediathekParser implements IWebParser {
+public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
     public static final String ID = ZDFMediathekParser.class.getName();
     private static final String BASE_URI = "http://www.zdf.de/ZDFmediathek/xmlservice/web";
     private static final String ROOT_PAGE = "dummy://localhost/" + ID;
     private static final int PREFERRED_THUMB_WIDTH = 300;
-
+    private static final int MAX_ENTRIES = 50;
     public static final String CHARSET = "UTF-8";
-
-    private final Map<String, String> aBisZ = new TreeMap<String, String>();
-
     public static Map<String, String> HTTP_HEADERS = new HashMap<String, String>();
+
+    public final OverviewPage abz;
+    private final Map<String, String> aBisZ = new TreeMap<String, String>();
 
     static {
         HTTP_HEADERS.put("User-Agent", "Mozilla/5.0 (X11; Linux i686) AppleWebKit/537.17 (KHTML, like Gecko) Chrome/24.0.1312.45 Safari/537.17");
@@ -75,9 +79,12 @@ public class ZDFMediathekParser implements IWebParser {
     // injected by iPojo, see #addProtocol(), #removeProtocol()
     List<INetworkProtocol> supportedProtocols = new ArrayList<INetworkProtocol>();
 
-    public final OverviewPage abz;
+    private BundleContext ctx;
+    private ResourceBundle resourceBundle;
 
-    public ZDFMediathekParser() {
+    public ZDFMediathekParser(BundleContext ctx) {
+        this.ctx = ctx;
+
         // initialize the root page
         aBisZ.put("0-9", BASE_URI + "/sendungenAbisZ?characterRangeEnd=0-9&detailLevel=2&characterRangeStart=0-9");
         aBisZ.put("ABC", BASE_URI + "/sendungenAbisZ?characterRangeEnd=C&detailLevel=2&characterRangeStart=A");
@@ -170,9 +177,10 @@ public class ZDFMediathekParser implements IWebParser {
                 programmPage.setParser(getId());
                 programmPage.setTitle(title);
                 programmPage.getUserData().put("id", id);
-                programmPage.setUri(new URI(BASE_URI + "/aktuellste?offset=0&maxLength=15&id=" + id));
+                programmPage.setUri(new URI(BASE_URI + "/aktuellste?offset=0&maxLength=" + MAX_ENTRIES + "&id=" + id));
                 page.getPages().add(programmPage);
             }
+
         } else if (uri.contains("/aktuellste?")) {
             NodeList teasers = content.getElementsByTagName("teaser");
             for (int i = 0; i < teasers.getLength(); i++) {
@@ -203,6 +211,21 @@ public class ZDFMediathekParser implements IWebParser {
                     video.setThumbnail(new URI(thumbUri));
                     // String biggest = images.get(sizes.get(sizes.size() - 1));
                 }
+            }
+
+            if (teasers.getLength() == MAX_ENTRIES) {
+                // extract parameters from current page
+                Map<String, List<String>> params = HttpUtils.parseQuery(page.getUri().getQuery());
+                String id = params.get("id").get(0);
+                String _offset = params.get("offset").get(0);
+                int offset = Integer.parseInt(_offset) + MAX_ENTRIES;
+
+                OverviewPage programmPage = new OverviewPage();
+                programmPage.setParser(getId());
+                programmPage.setTitle(getResourceBundle().getString("I18N_MORE_ENTRIES"));
+                programmPage.getUserData().put("id", id);
+                programmPage.setUri(new URI(BASE_URI + "/aktuellste?offset=" + offset + "&maxLength=" + MAX_ENTRIES + "&id=" + id));
+                page.getPages().add(programmPage);
             }
         }
     }
@@ -456,5 +479,18 @@ public class ZDFMediathekParser implements IWebParser {
     @Unbind(id = "supportedProtocols", aggregate = true)
     public synchronized void removeProtocol(INetworkProtocol protocol) {
         supportedProtocols.remove(protocol);
+    }
+
+    @Override
+    public ResourceBundle getResourceBundle() {
+        if (resourceBundle == null) {
+            try {
+                logger.log(LogService.LOG_DEBUG, "Loading resource bundle for " + getClass().getSimpleName());
+                resourceBundle = ResourceBundleLoader.load(ctx, Locale.getDefault());
+            } catch (IOException e) {
+                logger.log(LogService.LOG_ERROR, "Couldn't load resource bundle", e);
+            }
+        }
+        return resourceBundle;
     }
 }
