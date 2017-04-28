@@ -14,27 +14,17 @@ public class VideoType {
 
     private Quality quality;
     private final String uri;
-    private String format;
     private int height;
 
-    public VideoType(String uri, String format, int height, Quality quality) {
+    public VideoType(String uri, int height, Quality quality) {
         super();
         this.uri = uri;
-        this.format = format;
         this.height = height;
         this.quality = quality;
     }
 
     public String getUri() {
         return uri;
-    }
-
-    public String getFormat() {
-        return format;
-    }
-
-    public void setFormat(String format) {
-        this.format = format;
     }
 
     public Integer getHeight() {
@@ -55,6 +45,6 @@ public class VideoType {
 
     @Override
     public String toString() {
-        return quality + " " + format + " " + height + " " + uri;
+        return quality + " " + height + " " + uri;
     }
 }
