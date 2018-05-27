@@ -227,11 +227,17 @@ public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
 
     private void parseVideoPage(VideoPage video) throws URISyntaxException, IOException, JSONException {
         String uri = video.getUri().toString();
-        String content = HttpUtils.get(uri, null, CHARSET);
+        String content = HttpUtils.get(uri, HttpUtils.createFirefoxHeader(), CHARSET);
 
         String description = HtmlParserUtils.getText(content, "p.item-description");
         video.setDescription(description);
         video.setPublishDate(parsePubDate(content));
+        long now = System.currentTimeMillis();
+        if(video.getPublishDate().getTimeInMillis() > now) {
+            // this is a future broadcast
+            throw new RuntimeException("Video not yet available: Broadcast is on: " + video.getPublishDate().getTime());
+        }
+        video.setTitle(HtmlParserUtils.getText(content, "h1.big-headline"));
 
         JSONObject playerParams = getPlayerParams(content);
         String apiKey = playerParams.getString("apiToken");
