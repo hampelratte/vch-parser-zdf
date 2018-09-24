@@ -5,10 +5,11 @@ public class VideoType {
     //@formatter:off
     public static enum Quality {
         low,
-        medium,
+        med,
         high,
         veryhigh,
-        hd
+        hd,
+        auto
     }
     //@formatter:on
 

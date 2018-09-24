@@ -19,11 +19,9 @@ import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.apache.felix.ipojo.annotations.Bind;
 import org.apache.felix.ipojo.annotations.Component;
 import org.apache.felix.ipojo.annotations.Provides;
 import org.apache.felix.ipojo.annotations.Requires;
-import org.apache.felix.ipojo.annotations.Unbind;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -35,7 +33,6 @@ import org.osgi.service.log.LogService;
 import de.berlios.vch.http.client.HttpUtils;
 import de.berlios.vch.i18n.ResourceBundleLoader;
 import de.berlios.vch.i18n.ResourceBundleProvider;
-import de.berlios.vch.net.INetworkProtocol;
 import de.berlios.vch.parser.HtmlParserUtils;
 import de.berlios.vch.parser.IOverviewPage;
 import de.berlios.vch.parser.IWebPage;
@@ -57,9 +54,6 @@ public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
 
     @Requires
     private LogService logger;
-
-    // injected by iPojo, see #addProtocol(), #removeProtocol()
-    List<INetworkProtocol> supportedProtocols = new ArrayList<INetworkProtocol>();
 
     private BundleContext ctx;
     private ResourceBundle resourceBundle;
@@ -281,19 +275,23 @@ public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
             for (int j = 0; j < formitaeten.length(); j++) {
                 JSONObject formitaet = formitaeten.getJSONObject(j);
                 String mimeType = formitaet.getString("mimeType");
-                if(!"video/mp4".equals(mimeType)) {
+                if(!"video/mp4".equals(mimeType) && !"application/x-mpegURL".equals(mimeType)) {
                     continue;
                 }
 
                 JSONArray qualities = formitaet.getJSONArray("qualities");
                 for (int k = 0; k < qualities.length(); k++) {
-                    JSONObject qualityItem = qualities.getJSONObject(k);
-                    String quality = qualityItem.getString("quality");
-                    Quality q = Quality.valueOf(quality);
-                    JSONObject audio = qualityItem.getJSONObject("audio");
-                    JSONObject track = audio.getJSONArray("tracks").getJSONObject(0);
-                    String uri = track.getString("uri");
-                    videoTypes.add(new VideoType(uri, 0, q));
+                    try {
+                        JSONObject qualityItem = qualities.getJSONObject(k);
+                        String quality = qualityItem.getString("quality");
+                        Quality q = Quality.valueOf(quality);
+                        JSONObject audio = qualityItem.getJSONObject("audio");
+                        JSONObject track = audio.getJSONArray("tracks").getJSONObject(0);
+                        String uri = track.getString("uri");
+                        videoTypes.add(new VideoType(uri, 0, q));
+                    } catch(Exception e) {
+                        logger.log(LogService.LOG_ERROR, "Couldn't parse video", e);
+                    }
                 }
             }
         }
@@ -370,16 +368,6 @@ public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
     @Override
     public String getId() {
         return ID;
-    }
-
-    @Bind(id = "supportedProtocols", aggregate = true)
-    public synchronized void addProtocol(INetworkProtocol protocol) {
-        supportedProtocols.add(protocol);
-    }
-
-    @Unbind(id = "supportedProtocols", aggregate = true)
-    public synchronized void removeProtocol(INetworkProtocol protocol) {
-        supportedProtocols.remove(protocol);
     }
 
     @Override
