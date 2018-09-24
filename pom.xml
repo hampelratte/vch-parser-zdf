@@ -36,13 +36,6 @@
         </dependency>
         <dependency>
             <groupId>de.berlios.vch</groupId>
-            <artifactId>net</artifactId>
-            <type>bundle</type>
-            <scope>provided</scope>
-            <version>[1.0.0,2.0.0)</version>
-        </dependency>
-        <dependency>
-            <groupId>de.berlios.vch</groupId>
             <artifactId>i18n</artifactId>
             <type>bundle</type>
             <scope>provided</scope>
