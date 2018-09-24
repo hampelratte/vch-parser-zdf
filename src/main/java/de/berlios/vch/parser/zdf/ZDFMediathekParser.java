@@ -248,7 +248,9 @@ public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
         header.put("Referer", uri);
         String playerContent = HttpUtils.get(playerConfig, header, CHARSET);
         JSONObject json = new JSONObject(playerContent);
-        boolean hasVideo = json.getBoolean("hasVideo");
+        JSONObject brand = json.getJSONObject("http://zdf.de/rels/brand");
+        JSONObject target = brand.getJSONObject("http://zdf.de/rels/target");
+        boolean hasVideo = target.getBoolean("hasVideo");
         if(!hasVideo) {
             throw new RuntimeException("No video available");
         }
