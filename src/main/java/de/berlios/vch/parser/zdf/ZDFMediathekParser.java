@@ -257,8 +257,8 @@ public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
     private URI getVideoUri(JSONObject json, Map<String, String> header) throws JSONException, IOException, URISyntaxException {
         JSONObject mainVideoContent = json.getJSONObject("mainVideoContent");
         JSONObject target = mainVideoContent.getJSONObject("http://zdf.de/rels/target");
-        String path = target.getString("http://zdf.de/rels/streams/ptmd");
-        String uri = "https://api.zdf.de" + path;
+        String path = target.getString("http://zdf.de/rels/streams/ptmd-template");
+        String uri = "https://api.zdf.de" + path.replaceAll("\\{playerId\\}", "ngplayer_2_3");
 
         String mediaInfo = HttpUtils.get(uri, header, CHARSET);
         String videoUri = getBestVideo(mediaInfo);
