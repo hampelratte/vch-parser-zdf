@@ -227,9 +227,13 @@ public class ZDFMediathekParser implements IWebParser, ResourceBundleProvider {
         video.setDescription(description);
         video.setPublishDate(parsePubDate(content));
         long now = System.currentTimeMillis();
-        if(video.getPublishDate().getTimeInMillis() > now) {
-            // this is a future broadcast
-            throw new RuntimeException("Video not yet available: Broadcast is on: " + video.getPublishDate().getTime());
+        if (video.getPublishDate().getTimeInMillis() > now) {
+            if (content.contains("<strong>Vorab</strong>")) {
+                // cool, this is a web premiere before the actual broadcast
+            } else {
+                // this is a future broadcast
+                throw new RuntimeException("Video not yet available: Broadcast is on: " + video.getPublishDate().getTime());
+            }
         }
         video.setTitle(HtmlParserUtils.getText(content, "h1.big-headline"));
 
